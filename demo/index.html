@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Risque d'impayés — LightGBM</title>
+<meta name="description" content="Prédiction du risque d'impayé de factures télécom avec LightGBM : résultats sur données fictives et simulateur où le modèle tourne dans le navigateur.">
+<style>
+  :root {
+    --fond: #f6f5f2; --surface: #ffffff; --surface-2: #f1efea; --bord: #e2ded6;
+    --texte: #22262e; --texte-2: #5d6370; --accent: #b4532a; --accent-fond: #fbeee6; --accent-texte: #8a3a19;
+    --bleu: #2b6cb0; --gris: #9aa0a6; --ok: #2f7d4f; --ok-fond: #e6f3eb; --alerte: #b7791f; --ko: #b42318; --ko-fond: #fdecea;
+    --rayon: 10px; --police: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fond: #15171c; --surface: #1d2027; --surface-2: #252932; --bord: #343944; --texte: #ecebe7; --texte-2: #a3a8b3;
+      --accent: #e07a4a; --accent-fond: #3a2519; --accent-texte: #f2b08f; --bleu: #63a4e8; --gris: #7d838d;
+      --ok: #5cc38a; --ok-fond: #17321f; --alerte: #e0b04a; --ko: #f07167; --ko-fond: #3a1c1a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --fond: #15171c; --surface: #1d2027; --surface-2: #252932; --bord: #343944; --texte: #ecebe7; --texte-2: #a3a8b3;
+    --accent: #e07a4a; --accent-fond: #3a2519; --accent-texte: #f2b08f; --bleu: #63a4e8; --gris: #7d838d;
+    --ok: #5cc38a; --ok-fond: #17321f; --alerte: #e0b04a; --ko: #f07167; --ko-fond: #3a1c1a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fond); color: var(--texte); font: 15px/1.5 var(--police); }
+  .page { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  h2 { margin: 0 0 4px; font-size: 17px; }
+  .sous-titre, .note { color: var(--texte-2); }
+  .note { font-size: 13px; margin: 0 0 12px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .badge { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--accent-fond); color: var(--accent-texte); }
+  .badge.neutre { background: var(--surface-2); color: var(--texte-2); }
+  .carte { background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 18px; margin-bottom: 16px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 14px 16px; }
+  .kpi b { display: block; font-size: 26px; line-height: 1.2; }
+  .kpi span { font-size: 13px; color: var(--texte-2); }
+  .deux { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .deux > .carte { margin-bottom: 0; }
+  .grille-gauche { display: grid; grid-template-columns: 5fr 4fr; gap: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--bord); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--texte-2); font-weight: normal; }
+  tr.retenu td { font-weight: bold; }
+  tr.oracle td { color: var(--texte-2); font-style: italic; }
+  .tableau { overflow-x: auto; }
+  svg text { fill: var(--texte-2); font-size: 11px; font-family: var(--police); }
+  .legende { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--texte-2); margin-top: 6px; }
+  .legende i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .barres { display: grid; gap: 7px; }
+  .barre { display: grid; grid-template-columns: minmax(120px, 210px) 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+  .barre .lib { color: var(--texte-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .barre .piste { height: 12px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+  .barre .rempli { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+  .barre .val { font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+  form.sim { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
+  form.sim label { display: grid; gap: 3px; font-size: 13px; color: var(--texte-2); }
+  form.sim select, form.sim input[type=number] { font: inherit; color: var(--texte); background: var(--fond); border: 1px solid var(--bord); border-radius: 6px; padding: 6px 8px; width: 100%; }
+  .exemples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  button { font: inherit; font-size: 13px; cursor: pointer; border-radius: 999px; border: 1px solid var(--bord); background: var(--fond); color: var(--texte); padding: 5px 11px; }
+  button:hover { border-color: var(--accent); }
+  .jauge { font-size: 46px; font-weight: bold; line-height: 1; }
+  .niveau { display: inline-block; margin: 8px 0 4px; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 14px; }
+  .action { font-size: 14px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; margin: 10px 0 14px; }
+  .effets .rempli.hausse { background: var(--ko); }
+  .effets .rempli.baisse { background: var(--ok); }
+  .effets .barre { grid-template-columns: minmax(120px, 190px) 1fr auto; }
+  .effets .piste { position: relative; background: transparent; border-left: 1px solid var(--bord); }
+  ul.points { margin: 0; padding-left: 18px; }
+  ul.points li { margin-bottom: 6px; }
+  footer { margin-top: 24px; font-size: 13px; color: var(--texte-2); }
+  @media (max-width: 820px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .deux, .grille-gauche { grid-template-columns: 1fr; }
+    form.sim { grid-template-columns: 1fr 1fr; }
+    .barre, .effets .barre { grid-template-columns: 110px 1fr auto; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1><span>Risque d'impayés</span> — prédire avant l'échéance</h1>
+    <p class="sous-titre">Dès l'émission d'une facture télécom, estimer la probabilité qu'elle reste impayée 60 jours après l'échéance, pour cibler les relances.</p>
+    <div class="badges">
+      <span class="badge">Données 100 % fictives</span>
+      <span class="badge">LightGBM exécuté dans votre navigateur</span>
+      <span class="badge neutre">Python · pandas · scikit-learn · LightGBM · SHAP</span>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section class="carte">
+    <h2>Comparaison des modèles</h2>
+    <p class="note" id="note-test"></p>
+    <div class="tableau"><table id="comparaison"></table></div>
+    <p class="note" style="margin:12px 0 0" id="lecture"></p>
+  </section>
+
+  <div class="deux">
+    <section class="carte">
+      <h2>Courbe de gains</h2>
+      <p class="note">Part des impayés captés en relançant d'abord les factures les plus risquées.</p>
+      <svg id="gains" viewBox="0 0 420 300" width="100%" role="img" aria-label="Courbe de gains des modèles"></svg>
+      <div class="legende" id="legende-gains"></div>
+    </section>
+    <section class="carte">
+      <h2>Relancer 20 % des factures : quel ciblage ?</h2>
+      <p class="note" id="note-simulation"></p>
+      <div class="barres" id="simulation"></div>
+    </section>
+  </div>
+  <div style="height:16px"></div>
+
+  <section class="carte">
+    <h2>Simulateur</h2>
+    <p class="note">Le modèle LightGBM entraîné (<span id="nb-arbres"></span> arbres) est évalué ici, dans le navigateur. Modifiez une facture ou chargez un exemple du jeu de test.</p>
+    <div class="exemples" id="exemples"></div>
+    <div class="grille-gauche">
+      <form class="sim" id="simulateur"></form>
+      <div>
+        <div class="jauge" id="proba">—</div>
+        <div class="note" style="margin:4px 0 0">probabilité d'impayé à 60 jours</div>
+        <span class="niveau" id="niveau"></span>
+        <div class="action" id="action"></div>
+        <h2 style="font-size:14px">Ce qui pèse sur ce score</h2>
+        <p class="note">Variation de la probabilité si chaque variable reprenait une valeur typique.</p>
+        <div class="barres effets" id="effets"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="deux">
+    <section class="carte">
+      <h2>Variables les plus influentes (SHAP)</h2>
+      <p class="note">Impact moyen de chaque variable sur le score, sur le jeu de test.</p>
+      <div class="barres" id="importance"></div>
+    </section>
+    <section class="carte">
+      <h2>Portefeuille à traiter</h2>
+      <p class="note">Factures d'août et septembre 2026, dont l'issue n'est pas encore connue, classées par le modèle.</p>
+      <div class="tableau"><table id="portefeuille"></table></div>
+    </section>
+  </div>
+  <div style="height:16px"></div>
+
+  <section class="carte">
+    <h2>Méthode et limites</h2>
+    <ul class="points">
+      <li><b>Cible</b> : facture non soldée 60 jours après l'échéance. Une ligne par facture, ~100 000 factures de 5 000 comptes.</li>
+      <li><b>Sans fuite</b> : chaque variable est calculée à la date d'émission, avec ce qu'on savait ce jour-là.</li>
+      <li><b>Découpage temporel</b> : apprentissage sur 2024-2025, validation puis test sur des mois jamais vus.</li>
+      <li><b>Oracle</b> : la vraie probabilité du simulateur donne le plafond atteignable ; l'écart restant vient de difficultés soudaines qu'aucun historique de paiement n'annonce.</li>
+      <li><b>À mesurer</b> : l'efficacité d'une relance (35 % ici) est une hypothèse ; elle se mesure par un test A/B avec groupe témoin.</li>
+      <li><b>Éthique</b> : aucune variable sensible (âge, sexe, quartier) ; le score oriente les relances, il ne déclenche aucune action automatique.</li>
+    </ul>
+  </section>
+
+  <footer>Projet de démonstration : données simulées par un générateur à graine fixe, entièrement reproductible (notebook et scripts fournis).</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const nf = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
+  const pct = (v, d = 1) => `${(100 * v).toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d })} %`;
+  const echapper = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const COULEURS = { "Règle métier": "var(--gris)", "Régression logistique": "var(--bleu)", "LightGBM": "var(--accent)" };
+
+  // ---------- Évaluation des arbres LightGBM (mêmes règles que la bibliothèque) ----------
+  function evaluerArbre(n, x) {
+    while (typeof n !== "number") {
+      const v = x[n.f];
+      let gauche;
+      if (n.c) {  // variable catégorielle : les catégories listées partent à gauche
+        gauche = v !== null && !Number.isNaN(v) && n.c.includes(v);
+      } else {
+        const manquant = v === null || Number.isNaN(v);
+        if (n.m === "NaN" && manquant) gauche = n.dl;
+        else if (n.m === "Zero" && (manquant || v === 0)) gauche = n.dl;
+        else gauche = (manquant ? 0 : v) <= n.s;
+      }
+      n = gauche ? n.g : n.d;
+    }
+    return n;
+  }
+  function predire(modele, valeurs) {
+    const x = modele.variables.map((v) => {
+      const val = valeurs[v];
+      if (modele.categorielles.includes(v)) { const i = modele.categories[v].indexOf(val); return i < 0 ? NaN : i; }
+      return val === null || val === "" || val === undefined ? NaN : Number(val);
+    });
+    let s = 0;
+    for (const a of modele.arbres) s += evaluerArbre(a, x);
+    return 1 / (1 + Math.exp(-s));
+  }
+
+  // ---------- Graphiques ----------
+  function barres(conteneur, lignes, max, couleur) {
+    conteneur.innerHTML = lignes.map((l) => `<div class="barre"><span class="lib" title="${echapper(l.lib)}">${echapper(l.lib)}</span>
+      <span class="piste"><span class="rempli" style="width:${Math.max(1, 100 * l.val / max)}%;${l.couleur || couleur ? `background:${l.couleur || couleur}` : ""}"></span></span>
+      <span class="val">${l.texte}</span></div>`).join("");
+  }
+
+  function courbeGains(gains) {
+    const L = 420, H = 300, g = 40, b = 34, d = 10, h = 10;
+    const X = (p) => g + p * (L - g - d), Y = (p) => H - b - p * (H - b - h);
+    let svg = "";
+    for (let k = 0; k <= 4; k++) {
+      const p = k / 4;
+      svg += `<line x1="${X(0)}" x2="${X(1)}" y1="${Y(p)}" y2="${Y(p)}" stroke="var(--bord)"/>
+        <text x="${g - 6}" y="${Y(p) + 4}" text-anchor="end">${p * 100}%</text>
+        <text x="${X(p)}" y="${H - b + 16}" text-anchor="middle">${p * 100}%</text>`;
+    }
+    svg += `<line x1="${X(0)}" y1="${Y(0)}" x2="${X(1)}" y2="${Y(1)}" stroke="var(--texte-2)" stroke-dasharray="3 3"/>`;
+    svg += `<line x1="${X(0.2)}" y1="${Y(0)}" x2="${X(0.2)}" y2="${Y(1)}" stroke="var(--bord)" stroke-dasharray="4 3"/>`;
+    for (const [nom, pts] of Object.entries(gains)) {
+      const chemin = [[0, 0], ...pts.map((v, i) => [(i + 1) / pts.length, v])].map(([a, c], i) => `${i ? "L" : "M"}${X(a).toFixed(1)},${Y(c).toFixed(1)}`).join("");
+      svg += `<path d="${chemin}" fill="none" stroke="${COULEURS[nom]}" stroke-width="${nom === "LightGBM" ? 2.5 : 1.6}"/>`;
+    }
+    svg += `<text x="${X(0.5)}" y="${H - 4}" text-anchor="middle">factures relancées (des plus risquées aux moins risquées)</text>`;
+    $("gains").innerHTML = svg;
+    $("legende-gains").innerHTML = Object.keys(gains).map((n) => `<span><i style="background:${COULEURS[n]}"></i>${n}</span>`).join("") +
+      `<span><i style="background:var(--texte-2)"></i>Hasard</span>`;
+  }
+
+  // ---------- Simulateur ----------
+  const CHAMPS = [
+    ["mode_paiement", "cat"], ["type_client", "cat"], ["canal_facture", "cat"], ["contact_valide", "bin"],
+    ["derniere_facture_payee", "bin"], ["retard_derniere_facture", "num"], ["retard_moyen_6m", "num"],
+    ["part_a_temps_12m", "num"], ["nb_impayes_en_cours", "num"], ["anciennete_mois", "num"],
+    ["univers", "cat"], ["region", "cat"]];
+  const NIVEAUX = [
+    [0.10, "Faible", "var(--ok-fond)", "var(--ok)", "SMS automatique de rappel à l'échéance."],
+    [0.25, "Modéré", "var(--surface-2)", "var(--alerte)", "Rappel personnalisé trois jours avant l'échéance, avec lien de paiement mobile money."],
+    [0.50, "Élevé", "var(--accent-fond)", "var(--accent-texte)", "Appel d'un agent dès l'échéance ; vérifier que le contact de facturation est valide."],
+    [1.01, "Très élevé", "var(--ko-fond)", "var(--ko)", "Appel prioritaire et proposition d'échéancier avant que la dette ne s'accumule."]];
+  let modele, base;
+
+  function construireFormulaire() {
+    $("simulateur").innerHTML = CHAMPS.map(([v, type]) => {
+      const lib = echapper(modele.libelles[v]);
+      if (type === "cat") return `<label>${lib}<select name="${v}">${modele.categories[v].map((c) => `<option>${echapper(c)}</option>`).join("")}</select></label>`;
+      if (type === "bin") return `<label>${lib}<select name="${v}"><option value="1">Oui</option><option value="0">Non</option></select></label>`;
+      const n = modele.numeriques[v];
+      const pas = v === "part_a_temps_12m" ? 0.05 : 1;
+      return `<label>${lib}<input type="number" name="${v}" step="${pas}" min="${Math.min(0, Math.floor(n.min))}" max="${Math.ceil(n.max * 1.5)}"></label>`;
+    }).join("");
+    $("simulateur").addEventListener("input", calculer);
+  }
+
+  function remplir(valeurs) {
+    base = { ...valeurs };
+    for (const [v] of CHAMPS) {
+      const el = $("simulateur").elements[v];
+      const val = valeurs[v];
+      el.value = val === null || val === undefined ? "" : (typeof val === "number" ? Math.round(val * 100) / 100 : val);
+    }
+    calculer();
+  }
+
+  function lireFormulaire() {
+    const valeurs = { ...base };
+    for (const [v, type] of CHAMPS) {
+      const brut = $("simulateur").elements[v].value;
+      valeurs[v] = type === "cat" ? brut : brut === "" ? null : Number(brut);
+    }
+    return valeurs;
+  }
+
+  function calculer() {
+    const valeurs = lireFormulaire();
+    const p = predire(modele, valeurs);
+    const [, nom, fond, couleur, action] = NIVEAUX.find(([s]) => p < s);
+    $("proba").textContent = pct(p);
+    $("proba").style.color = couleur;
+    Object.assign($("niveau").style, { background: fond, color: couleur });
+    $("niveau").textContent = `Risque ${nom.toLowerCase()}`;
+    $("action").innerHTML = `<b>Action suggérée</b> : ${action}`;
+    // Effet de chaque variable : probabilité si elle reprenait sa valeur typique (médiane ou modalité de référence)
+    const effets = CHAMPS.map(([v, type]) => {
+      const typique = type === "cat" ? { mode_paiement: "MOBILE_MONEY", type_client: "PARTICULIER", canal_facture: "SMS", univers: "MOBILE", region: "Dakar" }[v]
+        : type === "bin" ? 1 : modele.numeriques[v].mediane;
+      const delta = p - predire(modele, { ...valeurs, [v]: typique });
+      return { v, delta };
+    }).filter((e) => Math.abs(e.delta) >= 0.002).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 6);
+    const max = Math.max(0.01, ...effets.map((e) => Math.abs(e.delta)));
+    $("effets").innerHTML = effets.length ? effets.map((e) => `<div class="barre"><span class="lib">${echapper(modele.libelles[e.v])}</span>
+      <span class="piste"><span class="rempli ${e.delta > 0 ? "hausse" : "baisse"}" style="width:${100 * Math.abs(e.delta) / max}%"></span></span>
+      <span class="val">${e.delta > 0 ? "+" : "−"}${nf.format(Math.abs(100 * e.delta))} pt</span></div>`).join("")
+      : `<p class="note">Facture proche d'une facture typique : aucune variable ne s'écarte nettement.</p>`;
+  }
+
+  // ---------- Chargement ----------
+  Promise.all([fetch("resultats.json").then((r) => r.json()), fetch("modele_web.json").then((r) => r.json())]).then(([res, m]) => {
+    modele = m;
+    const c = res.comparaison, lg = c["LightGBM"];
+    $("kpis").innerHTML = [
+      [nf.format(res.donnees.factures), "factures simulées"],
+      [pct(res.donnees.taux_impaye), "taux d'impayé à 60 jours"],
+      [lg.auc.toFixed(3).replace(".", ","), "AUC LightGBM sur le test"],
+      [`× ${nf.format(lg.lift_top10)}`, "concentration d'impayés dans les 10 % les plus risqués"],
+    ].map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join("");
+
+    $("note-test").textContent = `Jeu de test : ${nf.format(res.donnees.test)} factures des mois de facturation ${res.donnees.periode_test}, jamais vues à l'apprentissage.`;
+    const lignes = { ...c, "Oracle (plafond théorique)": res.oracle };
+    $("comparaison").innerHTML = `<thead><tr><th>Modèle</th><th>AUC</th><th>PR-AUC</th><th>Gini</th><th>Lift top 10 %</th><th>Impayées dans le top 20 %</th><th>Brier</th></tr></thead><tbody>` +
+      Object.entries(lignes).map(([nom, x]) => `<tr class="${nom === "LightGBM" ? "retenu" : nom.startsWith("Oracle") ? "oracle" : ""}">
+        <td>${nom}${nom === "LightGBM" ? " (retenu)" : ""}</td><td>${x.auc.toFixed(3)}</td><td>${x.pr_auc.toFixed(3)}</td><td>${x.gini.toFixed(3)}</td>
+        <td>× ${nf.format(x.lift_top10)}</td><td>${pct(x.rappel_top20, 0)}</td><td>${x.brier ? x.brier.toFixed(3) : "—"}</td></tr>`).join("") + "</tbody>";
+    $("lecture").innerHTML = `<b>Lecture</b> : les deux modèles battent nettement la règle métier et font jeu égal entre eux. LightGBM est retenu pour ses explications par facture (SHAP) et sa gestion native des valeurs manquantes ; l'écart avec l'oracle vient de difficultés soudaines qu'aucun historique de paiement ne permet d'anticiper.`;
+
+    courbeGains(res.gains);
+    const sim = res.simulation_relance, maxSim = Math.max(...sim.map((s) => s.montant_evite_fcfa));
+    $("note-simulation").textContent = `Impayés évités sur les ${res.donnees.nb_mois_test} mois du test, si une relance évite ${pct(res.hypotheses_simulation.taux_conversion_relance, 0)} des impayés ciblés (hypothèse à mesurer par test A/B).`;
+    barres($("simulation"), sim.map((s) => ({ lib: s.strategie, val: s.montant_evite_fcfa, couleur: COULEURS[s.strategie] || "var(--gris)",
+      texte: `${nf.format(s.montant_evite_fcfa / 1e6)} M FCFA` })), maxSim);
+
+    const imp = res.importance.slice(0, 10);
+    barres($("importance"), imp.map((i) => ({ lib: i.libelle, val: i.shap_moyen_abs, texte: i.shap_moyen_abs.toFixed(2).replace(".", ",") })), imp[0].shap_moyen_abs);
+
+    const total = res.portefeuille_courant.reduce((a, p) => a + p.factures, 0);
+    $("portefeuille").innerHTML = `<thead><tr><th>Niveau de risque</th><th>Factures</th><th>Part</th><th>Montant (FCFA)</th></tr></thead><tbody>` +
+      res.portefeuille_courant.map((p) => `<tr><td>${p.niveau}</td><td>${nf.format(p.factures)}</td><td>${pct(p.factures / total)}</td><td>${nf.format(p.montant_fcfa)}</td></tr>`).join("") + "</tbody>";
+
+    $("nb-arbres").textContent = m.arbres.length;
+    construireFormulaire();
+    $("exemples").innerHTML = res.exemples.map((e, i) => `<button type="button" data-i="${i}">Facture n° ${e.id_facture} · issue réelle : ${e.issue_reelle ? "impayée" : "payée"}</button>`).join("");
+    $("exemples").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) remplir(res.exemples[b.dataset.i].valeurs); });
+    remplir(res.exemples[3].valeurs);
+
+    // Contrôle : le moteur JavaScript doit retrouver les probabilités calculées par LightGBM en Python
+    const ecart = Math.max(...m.controle.map((k) => Math.abs(predire(m, k.valeurs) - k.proba)));
+    window.controleModele = ecart;
+    if (ecart > 0.001) console.warn("Écart entre JavaScript et LightGBM :", ecart);
+  }).catch((e) => { document.querySelector(".page").insertAdjacentHTML("afterbegin", `<p class="carte">Impossible de charger les résultats : ${echapper(e.message)}</p>`); });
+})();
+</script>
+</body>
+</html>
